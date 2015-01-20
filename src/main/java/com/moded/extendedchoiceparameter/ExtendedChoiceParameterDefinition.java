@@ -1,4 +1,5 @@
 /*
+ *Copyright (c) 2015 Len Isac
  *Copyright (c) 2013 Costco, RGS
  *Copyright (c) 2013 John DiMatteo
  *See the file license.txt for copying permission.
@@ -13,6 +14,7 @@ import hudson.util.FormValidation;
 import hudson.model.Hudson;
 import hudson.model.User;
 import hudson.security.AuthorizationStrategy;
+
 import com.michelin.cio.hudson.plugins.rolestrategy.Role;
 import com.michelin.cio.hudson.plugins.rolestrategy.RoleBasedAuthorizationStrategy;
 
@@ -50,7 +52,6 @@ import org.kohsuke.stapler.StaplerRequest;
 import au.com.bytecode.opencsv.CSVReader;
 
 import org.kohsuke.stapler.bind.JavaScriptMethod;
-
 import org.tmatesoft.svn.core.SVNURL;
 import org.tmatesoft.svn.core.io.SVNRepository;
 import org.tmatesoft.svn.core.io.SVNRepositoryFactory;
@@ -152,7 +153,17 @@ public class ExtendedChoiceParameterDefinition extends ParameterDefinition {
 	private String type;
 
 	private String value;
-		
+	
+	//
+	private transient int multiLevelColumns = 0;
+	
+	private transient String strValue;
+	
+	private Map<Integer, String> allCols = new HashMap<Integer, String>();
+	
+	private boolean bindedSelect;
+	//
+	
 	private String propertyFile;
 
 	private String propertyKey;
@@ -178,7 +189,7 @@ public class ExtendedChoiceParameterDefinition extends ParameterDefinition {
 	@DataBoundConstructor
 	public ExtendedChoiceParameterDefinition(String name, String type, String value, String propertyFile, String propertyKey, String defaultValue,
 			String defaultPropertyFile, String defaultPropertyKey, boolean quoteValue, int visibleItemCount, String description,
-			String multiSelectDelimiter, String bindFieldName, boolean svnPath, String svnUrl, String svnUserName, String svnPassword, String projectName, boolean roleBasedFilter) {
+			String multiSelectDelimiter, String bindFieldName, boolean svnPath, String svnUrl, String svnUserName, String svnPassword, String projectName, boolean bindedSelect, boolean roleBasedFilter) {
 		super(name, description);
 		this.type = type;
 
@@ -193,6 +204,8 @@ public class ExtendedChoiceParameterDefinition extends ParameterDefinition {
 		this.svnPath = svnPath;
 		this.roleBasedFilter = roleBasedFilter;
 		this.bindFieldName = bindFieldName;
+		this.bindedSelect = bindedSelect; /** added **/
+		System.out.println("this.bindedSelect: " + this.bindedSelect); // test output		
 		if(visibleItemCount == 0) {
 			visibleItemCount = 5;
 		}
@@ -257,6 +270,8 @@ public class ExtendedChoiceParameterDefinition extends ParameterDefinition {
 	public ParameterValue createValue(StaplerRequest request, JSONObject jO) {		
 		Object value = jO.get("value");
 		String strValue = "";
+		Map<Integer, String> allCols = new HashMap<Integer, String>();
+		
 		if(value instanceof String) {
 			strValue = (String)value;
 		}
@@ -271,6 +286,13 @@ public class ExtendedChoiceParameterDefinition extends ParameterDefinition {
 				for (int i = 1; it.hasNext(); i++)
 				{
 					String nextValue = it.next().toString();
+					
+					/** added **/
+					multiLevelColumns = i;
+					System.out.println("Iterator nextValue " + i + ": " + nextValue); // test output
+					allCols.put(i, nextValue);
+					/***********/
+					
 					if (i % valuesBetweenLevels == 0)
 					{
 						if (strValue.length() > 0)
@@ -279,18 +301,45 @@ public class ExtendedChoiceParameterDefinition extends ParameterDefinition {
 						}
 						strValue += nextValue;
 					}
+					/** added **/
+					this.allCols = allCols;
+					/***********/
 				}
 			}
 			else
 			{
 				strValue = StringUtils.join(jsonValues.iterator(), getMultiSelectDelimiter());
 			}
+			
+			/*** added ****/
+			
+			// Concatenate all columns
+			strValue = "";
+			StringBuilder strCols = new StringBuilder();
+			for (int j = 1, col = 1, line = 1; j < multiLevelColumns + 1; j++, col++) {
+				if (col == 1) { // 1st column
+					strCols.append(line).append(":").append(this.allCols.get(j)).append(",");
+				}
+				else if ((j % 3) == 0) { // last column
+					strCols.append(this.allCols.get(j)).append(":");
+					col = 0;
+					line++;
+				} 
+				else { // columns in between
+					strCols.append(this.allCols.get(j)).append(",");
+				}
+			}
+			strValue = strCols.toString();
+			System.out.println("strValue: " + strValue + ":");
+			
+			/**************/	
+			
 		}
 
 		if(quoteValue) {
 			strValue = "\"" + strValue + "\"";
 		}
-		return new ExtendedChoiceParameterValue(getName(), strValue);
+		return new ExtendedChoiceParameterValue(getName(), strValue, multiLevelColumns, allCols); /** added multiLevelColumns param **/
 	}
 
 	@Override
@@ -386,9 +435,11 @@ public class ExtendedChoiceParameterDefinition extends ParameterDefinition {
 				
 				String result="";
 				
+				System.out.println("bindedSelect: " + this.bindedSelect); ///
+				
 				if (this.type.equals("PT_SINGLE_SELECT"))
 				{
-					result+="<select name=\"value\">";
+					result+="<select name=\"value\" id=\"selectlist\" class=\"" + this.bindedSelect + "\">"; // class=\"true\"	
 					for (int i = 0; i < list_arr.length; ++i)
 					{
 				
@@ -851,6 +902,16 @@ public class ExtendedChoiceParameterDefinition extends ParameterDefinition {
 	public void setQuoteValue(boolean quoteValue) {
 		this.quoteValue = quoteValue;
 	}
+	
+	/** added **/
+	public boolean isBindedSelect() {
+		return bindedSelect;
+	}
+
+	public void setBindedSelect(boolean bindedSelect) {
+		this.bindedSelect = bindedSelect;
+	}	
+	/***********/	
 
 	public boolean isSvnPath() {
 		return svnPath;
